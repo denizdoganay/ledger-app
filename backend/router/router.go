@@ -15,6 +15,8 @@ func Start() {
 	router.HandleFunc("/add-balance", handlers.AddBalance).Methods("POST")
 	router.HandleFunc("/get-balance/{id}", handlers.GetBalance).Methods("GET")
 	router.HandleFunc("/get-all-balance", handlers.GetAllBalance).Methods("GET")
+	router.HandleFunc("/transfer-balance", handlers.TransferBalance).Methods("POST")
+	router.HandleFunc("/withdraw", handlers.Withdraw).Methods("POST")
 
 	http.ListenAndServe(":8080", router)
 }

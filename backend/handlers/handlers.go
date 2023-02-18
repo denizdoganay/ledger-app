@@ -114,3 +114,101 @@ func GetAllBalance(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(response)
 }
+
+func TransferBalance(w http.ResponseWriter, r *http.Request) {
+	var sender, receiver database.User
+
+	var transferPayload struct {
+		SenderID   int     `json:"sender_id"`
+		ReceiverID int     `json:"receiver_id"`
+		Amount     float64 `json:"amount"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&transferPayload); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	if err := database.Db.First(&sender, transferPayload.SenderID).Error; err != nil {
+		http.Error(w, "Sender not found", http.StatusBadRequest)
+
+		return
+	}
+
+	if err := database.Db.First(&receiver, transferPayload.ReceiverID).Error; err != nil {
+		http.Error(w, "Receiver not found", http.StatusBadRequest)
+
+		return
+	}
+
+	if sender.Balance < transferPayload.Amount {
+		http.Error(w, "Insufficient balance", http.StatusBadRequest)
+
+		return
+	}
+
+	tx := database.Db.Begin()
+
+	newSenderBalance := sender.Balance - transferPayload.Amount
+	if err := tx.Model(&sender).Update("balance", newSenderBalance).Error; err != nil {
+		tx.Rollback()
+
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	newReceiverBalance := receiver.Balance + transferPayload.Amount
+	if err := tx.Model(&receiver).Update("balance", newReceiverBalance).Error; err != nil {
+		tx.Rollback()
+
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	fmt.Fprintf(w, "Transfer of %f from user %d to user %d successful", transferPayload.Amount, transferPayload.SenderID, transferPayload.ReceiverID)
+}
+
+func Withdraw(w http.ResponseWriter, r *http.Request) {
+	var user database.User
+
+	var requestPayload struct {
+		Id     int     `json:"id"`
+		Amount float64 `json:"amount"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&requestPayload); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	if err := database.Db.First(&user, requestPayload.Id).Error; err != nil {
+		http.Error(w, "User not found", http.StatusBadRequest)
+
+		return
+	}
+
+	if user.Balance < requestPayload.Amount {
+		http.Error(w, "Insufficient balance", http.StatusBadRequest)
+
+		return
+	}
+
+	newBalance := user.Balance - requestPayload.Amount
+	if err := database.Db.Model(&user).Update("balance", newBalance).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	fmt.Fprintf(w, "User %d balance updated successfully to %f", user.Id, newBalance)
+}
