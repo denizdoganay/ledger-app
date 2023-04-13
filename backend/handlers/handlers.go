@@ -5,10 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	database "example.com/m/v2/database"
 	"github.com/gorilla/mux"
 )
+
+type ErrorMessage struct {
+	Error string `json:"error"`
+}
 
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user database.User
@@ -43,7 +48,8 @@ func AddBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := database.Db.First(&user, requestPayload.Id).Error; err != nil {
-		http.Error(w, "User not found", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "User not found"})
 
 		return
 	}
@@ -142,6 +148,21 @@ func TransferBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	str := fmt.Sprintf("%.10f", transferPayload.Amount)
+	decimalPoints := len(str) - strings.Index(str, ".") - 1
+
+	if decimalPoints > 2 {
+		http.Error(w, "Transfer amount should be a multiple of 0.01", http.StatusBadRequest)
+
+		return
+	}
+
+	if transferPayload.Amount <= 0 {
+		http.Error(w, "Transfer amount should be greater than zero", http.StatusBadRequest)
+
+		return
+	}
+
 	if sender.Balance < transferPayload.Amount {
 		http.Error(w, "Insufficient balance", http.StatusBadRequest)
 
@@ -150,6 +171,7 @@ func TransferBalance(w http.ResponseWriter, r *http.Request) {
 
 	tx := database.Db.Begin()
 
+	oldSenderBalance := sender.Balance
 	newSenderBalance := sender.Balance - transferPayload.Amount
 	if err := tx.Model(&sender).Update("balance", newSenderBalance).Error; err != nil {
 		tx.Rollback()
@@ -159,8 +181,28 @@ func TransferBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldReceiverBalance := receiver.Balance
 	newReceiverBalance := receiver.Balance + transferPayload.Amount
 	if err := tx.Model(&receiver).Update("balance", newReceiverBalance).Error; err != nil {
+		tx.Rollback()
+
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	transaction := database.Transaction{
+		SenderId:           transferPayload.SenderID,
+		ReceiverId:         transferPayload.ReceiverID,
+		Type:               "transfer",
+		Amount:             transferPayload.Amount,
+		SenderOldBalance:   oldSenderBalance,
+		SenderNewBalance:   newSenderBalance,
+		ReceiverOldBalance: oldReceiverBalance,
+		ReceiverNewBalance: newReceiverBalance,
+	}
+
+	if err := tx.Create(&transaction).Error; err != nil {
 		tx.Rollback()
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)

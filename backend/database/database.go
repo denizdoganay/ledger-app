@@ -14,6 +14,18 @@ type User struct {
 	Balance float64
 }
 
+type Transaction struct {
+	gorm.Model
+	SenderId           int
+	ReceiverId         int
+	Type               string // 'add', 'withdraw', or 'transfer'
+	Amount             float64
+	SenderOldBalance   float64
+	SenderNewBalance   float64
+	ReceiverOldBalance float64
+	ReceiverNewBalance float64
+}
+
 var Db *gorm.DB
 
 func ConnectDb() {
@@ -24,7 +36,7 @@ func ConnectDb() {
 		panic(err)
 	}
 
-	db.AutoMigrate(&User{})
+	db.AutoMigrate(&User{}, &Transaction{})
 	Db = db
 	//defer db.Close()
 }
