@@ -7,11 +7,12 @@ import (
 
 type User struct {
 	gorm.Model
-	Id      int `gorm:"primaryKey;autoIncrement"`
-	Name    string
-	Age     int
-	Email   string
-	Balance float64
+	Id       int `gorm:"primaryKey;autoIncrement"`
+	Name     string
+	Age      int
+	Email    string `gorm:"unique"`
+	Password string
+	Balance  float64
 }
 
 type Transaction struct {

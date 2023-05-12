@@ -9,6 +9,7 @@ import (
 
 	database "example.com/m/v2/database"
 	"github.com/gorilla/mux"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type ErrorMessage struct {
@@ -30,7 +31,12 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, "User %s created successfully", user.Name)
+	response := map[string]interface{}{
+		"message": "User created successfully",
+		"user":    user,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func AddBalance(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +49,12 @@ func AddBalance(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&requestPayload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	if requestPayload.Id == 0 || requestPayload.Balance == 0 {
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
 
 		return
 	}
@@ -66,6 +78,19 @@ func AddBalance(w http.ResponseWriter, r *http.Request) {
 
 func GetBalance(w http.ResponseWriter, r *http.Request) {
 	var user database.User
+	email := r.FormValue("email")
+
+	if err := database.Db.Where("email = ?", email).First(&user).Error; err != nil {
+		http.Error(w, "User not found", http.StatusBadRequest)
+		return
+	}
+
+	password := r.FormValue("password")
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		http.Error(w, "Invalid password", http.StatusBadRequest)
+		return
+	}
 
 	vars := mux.Vars(r)
 	idStr := vars["id"]
@@ -227,6 +252,20 @@ func Withdraw(w http.ResponseWriter, r *http.Request) {
 		Amount float64 `json:"amount"`
 	}
 
+	email := r.FormValue("email")
+
+	if err := database.Db.Where("email = ?", email).First(&user).Error; err != nil {
+		http.Error(w, "User not found", http.StatusBadRequest)
+		return
+	}
+
+	password := r.FormValue("password")
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		http.Error(w, "Invalid password", http.StatusBadRequest)
+		return
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&requestPayload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 
@@ -253,4 +292,39 @@ func Withdraw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, "User %d balance updated successfully to %f", user.Id, newBalance)
+}
+
+func SignUp(w http.ResponseWriter, r *http.Request) {
+	var user database.User
+
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	var existingUser database.User
+	if err := database.Db.Where("email = ? AND deleted_at IS NULL", user.Email).First(&existingUser).Error; err == nil {
+		http.Error(w, "Email already exists", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	user.Password = string(hashedPassword)
+
+	if err := database.Db.Create(&user).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message": "User created successfully",
+		"user":    user,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
